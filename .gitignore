@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Build and test artifacts
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Go fuzzing corpus and crash artifacts
+testdata/fuzz/
+
+# Local agent workspace (downloaded references, scratch notes)
+.ai/ref/
