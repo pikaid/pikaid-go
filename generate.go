@@ -7,12 +7,6 @@ import (
 	"time"
 )
 
-// randomReader is the cryptographic random source used for generation. It is
-// a package variable only so tests can exercise the failure path; production
-// code always reads from crypto/rand.Reader, which is the operating system
-// CSPRNG.
-var randomReader io.Reader = rand.Reader
-
 // Generate returns a new identifier for the current UTC Unix second.
 //
 // Exactly 12 bytes are read from the operating system CSPRNG. If the random
@@ -30,13 +24,24 @@ func Generate() (ID, error) {
 // the only caller-controlled component. Using a caller-supplied timestamp does
 // not provide deterministic output.
 func GenerateWithTimestamp(timestamp int64) (ID, error) {
+	return generateWithReader(rand.Reader, timestamp)
+}
+
+// generateWithReader is the single implementation of generation. The random
+// source is a parameter rather than package state, so tests can exercise
+// failure paths without mutating process-wide state; every exported generator
+// passes crypto/rand.Reader.
+//
+// The timestamp is validated before any byte is read, so an invalid timestamp
+// never consumes entropy.
+func generateWithReader(r io.Reader, timestamp int64) (ID, error) {
 	if timestamp < 0 || timestamp > MaxTimestamp {
 		return ID{}, fmt.Errorf("%w: %d is outside 0..%d", ErrTimestampOutOfRange, timestamp, int64(MaxTimestamp))
 	}
 
 	id := ID{timestamp: uint64(timestamp)}
-	if _, err := io.ReadFull(randomReader, id.randomness[:]); err != nil {
-		return ID{}, fmt.Errorf("%w: %v", ErrRandomSource, err)
+	if _, err := io.ReadFull(r, id.randomness[:]); err != nil {
+		return ID{}, fmt.Errorf("%w: %w", ErrRandomSource, err)
 	}
 	return id, nil
 }
@@ -44,18 +49,19 @@ func GenerateWithTimestamp(timestamp int64) (ID, error) {
 // GenerateBinary returns a new identifier for the current UTC Unix second in
 // its 17-byte binary representation.
 func GenerateBinary() ([BinaryLength]byte, error) {
-	id, err := Generate()
-	if err != nil {
-		return [BinaryLength]byte{}, err
-	}
-	return id.Bytes(), nil
+	return generateBinaryWithReader(rand.Reader, time.Now().Unix())
 }
 
 // GenerateBinaryWithTimestamp returns a new identifier with the supplied Unix
 // timestamp in its 17-byte binary representation. The timestamp must be in
 // 0..MaxTimestamp.
 func GenerateBinaryWithTimestamp(timestamp int64) ([BinaryLength]byte, error) {
-	id, err := GenerateWithTimestamp(timestamp)
+	return generateBinaryWithReader(rand.Reader, timestamp)
+}
+
+// generateBinaryWithReader mirrors generateWithReader for the binary form.
+func generateBinaryWithReader(r io.Reader, timestamp int64) ([BinaryLength]byte, error) {
+	id, err := generateWithReader(r, timestamp)
 	if err != nil {
 		return [BinaryLength]byte{}, err
 	}

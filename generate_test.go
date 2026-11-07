@@ -2,9 +2,9 @@ package pikaid
 
 import (
 	"bytes"
-	"crypto/rand"
 	"errors"
 	"io"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -89,24 +89,67 @@ func TestGenerateBinaryWithTimestampIsExact(t *testing.T) {
 	}
 }
 
-// TestDefaultRandomSourceIsCryptoRand guards against accidentally replacing
-// the production entropy source with a non-cryptographic generator.
-func TestDefaultRandomSourceIsCryptoRand(t *testing.T) {
-	if randomReader != rand.Reader {
-		t.Fatal("default randomReader is not crypto/rand.Reader")
-	}
-}
-
 type failingReader struct{ err error }
 
 func (r failingReader) Read([]byte) (int, error) { return 0, r.err }
 
+// readRecorder reports whether the entropy source was consulted.
+type readRecorder struct{ reads int }
+
+func (r *readRecorder) Read([]byte) (int, error) {
+	r.reads++
+	return 0, errors.New("entropy unavailable")
+}
+
+// TestGenerateWithReaderUsesSuppliedRandomness pins the private generation core
+// against a deterministic reader, including both timestamp boundaries.
+func TestGenerateWithReaderUsesSuppliedRandomness(t *testing.T) {
+	source := make([]byte, RandomnessBytes)
+	for i := range source {
+		source[i] = byte(0xa0 + i)
+	}
+	var wantRandomness [RandomnessBytes]byte
+	copy(wantRandomness[:], source)
+
+	for _, timestamp := range []int64{0, MaxTimestamp} {
+		id, err := generateWithReader(bytes.NewReader(source), timestamp)
+		if err != nil {
+			t.Fatalf("generateWithReader(%d): %v", timestamp, err)
+		}
+		want := newID(uint64(timestamp), wantRandomness)
+		if id != want {
+			t.Errorf("generateWithReader(%d) = %v, want %v", timestamp, id, want)
+		}
+	}
+}
+
+// TestGenerateRejectsTimestampBeforeReadingEntropy proves the fail-closed
+// ordering: an out-of-range timestamp must not consume entropy.
+func TestGenerateRejectsTimestampBeforeReadingEntropy(t *testing.T) {
+	timestamps := []int64{-1, math.MinInt64, MaxTimestamp + 1, math.MaxInt64}
+
+	for _, timestamp := range timestamps {
+		recorder := &readRecorder{}
+		id, err := generateWithReader(recorder, timestamp)
+		if !errors.Is(err, ErrTimestampOutOfRange) {
+			t.Errorf("timestamp %d: error = %v, want ErrTimestampOutOfRange", timestamp, err)
+		}
+		if recorder.reads != 0 {
+			t.Errorf("timestamp %d: random source read %d times, want 0", timestamp, recorder.reads)
+		}
+		if id != (ID{}) {
+			t.Errorf("timestamp %d: returned partial ID %v", timestamp, id)
+		}
+	}
+}
+
 func TestGenerateFailsClosedOnRandomSourceError(t *testing.T) {
+	sourceErr := errors.New("entropy unavailable")
 	tests := []struct {
 		name   string
 		reader io.Reader
 	}{
-		{"error", failingReader{err: errors.New("entropy unavailable")}},
+		{"error", failingReader{err: sourceErr}},
 		{"truncated", bytes.NewReader(make([]byte, RandomnessBytes-1))},
 		{"eof", strings.NewReader("")},
 	}
@@ -114,46 +157,35 @@ func TestGenerateFailsClosedOnRandomSourceError(t *testing.T) {
 	for _, tc := range tests {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			original := randomReader
-			randomReader = tc.reader
-			t.Cleanup(func() { randomReader = original })
-
-			id, err := Generate()
+			id, err := generateWithReader(tc.reader, 1_700_000_000)
 			if err == nil {
-				t.Fatalf("Generate returned %v without an error", id)
+				t.Fatalf("generateWithReader returned %v without an error", id)
 			}
 			if !errors.Is(err, ErrRandomSource) {
 				t.Errorf("error = %v, want ErrRandomSource", err)
 			}
 			if id != (ID{}) {
-				t.Errorf("Generate returned a partial ID: %v", id)
+				t.Errorf("generateWithReader returned a partial ID: %v", id)
 			}
-
-			bin, err := GenerateBinary()
-			if err == nil {
-				t.Fatalf("GenerateBinary returned %x without an error", bin)
-			}
-			if !errors.Is(err, ErrRandomSource) {
-				t.Errorf("binary error = %v, want ErrRandomSource", err)
-			}
-			if bin != ([BinaryLength]byte{}) {
-				t.Errorf("GenerateBinary returned partial bytes: %x", bin)
-			}
-
-			// A timestamp error is reported before randomness is requested.
-			if _, err := GenerateWithTimestamp(-1); !errors.Is(err, ErrTimestampOutOfRange) {
-				t.Errorf("timestamp error = %v, want ErrTimestampOutOfRange", err)
+			// The underlying source error is preserved in the chain.
+			if tc.name == "error" && !errors.Is(err, sourceErr) {
+				t.Errorf("error = %v, want wrapped source error %v", err, sourceErr)
 			}
 		})
 	}
+}
 
-	// Restoring the source restores generation.
-	id, err := Generate()
-	if err != nil {
-		t.Fatalf("Generate after restoring source: %v", err)
+func TestGenerateBinaryFailsClosedOnRandomSourceError(t *testing.T) {
+	sourceErr := errors.New("entropy unavailable")
+	bin, err := generateBinaryWithReader(failingReader{err: sourceErr}, 1_700_000_000)
+	if !errors.Is(err, ErrRandomSource) {
+		t.Errorf("error = %v, want ErrRandomSource", err)
 	}
-	if !IsValid(id.String()) {
-		t.Fatalf("generated value %q is invalid", id.String())
+	if !errors.Is(err, sourceErr) {
+		t.Errorf("error = %v, want wrapped source error %v", err, sourceErr)
+	}
+	if bin != ([BinaryLength]byte{}) {
+		t.Errorf("returned partial bytes: %x", bin)
 	}
 }
 

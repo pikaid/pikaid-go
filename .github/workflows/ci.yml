@@ -24,13 +24,14 @@ jobs:
         go: ["1.21.x", "stable"]
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go }}
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Report toolchain
         run: go version
@@ -49,13 +50,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.21.x"
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Test with race detector
         run: go test -race ./... -count=1
@@ -65,13 +67,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.21.x"
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Cross-compile foreign and 32-bit targets
         run: |
@@ -81,18 +84,25 @@ jobs:
             GOOS="${target%/*}" GOARCH="${target#*/}" go build ./...
           done
 
+      - name: Vet and test the 32-bit target
+        run: |
+          set -eu
+          GOOS=linux GOARCH=386 go vet ./...
+          GOOS=linux GOARCH=386 go test ./... -count=1
+
   format:
     name: gofmt
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.21.x"
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Check formatting
         run: |
@@ -108,13 +118,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.21.x"
           cache: true
+          cache-dependency-path: go.mod
 
       - name: Measure coverage
         run: |

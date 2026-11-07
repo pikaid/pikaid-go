@@ -8,7 +8,9 @@
 
 # pikaid — Official Go Implementation
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/pikaid/pikaid-go.svg)](https://pkg.go.dev/github.com/pikaid/pikaid-go)
+> **Status: unreleased and unpublished.** There is no tagged version, no
+> registry or module-proxy publication, and this private repository has no
+> public package documentation. Pin a commit (`@<commit>`) for reproducible use.
 
 The official Go implementation of [pikaid](https://github.com/pikaid), a compact,
 chronologically sortable identifier for databases, APIs and distributed systems.
@@ -38,9 +40,8 @@ implements [specification revision 1.0.4](https://github.com/pikaid/pikaid-specs
 go get github.com/pikaid/pikaid-go@main
 ```
 
-The module declares Go 1.21 as its minimum supported version. No tagged release
-has been published yet: pin a commit (`@<commit>`) if you need reproducibility.
-The package has no dependencies outside the Go standard library.
+The module declares Go 1.21 as its minimum supported version and has no
+dependencies outside the Go standard library.
 
 ## Quick start
 
@@ -102,10 +103,20 @@ if err != nil {
 fmt.Println(restored == id) // true
 ```
 
-`ID` also implements `encoding.TextMarshaler`, `encoding.TextUnmarshaler`,
-`encoding.BinaryMarshaler` and `encoding.BinaryUnmarshaler`, so it works with
-`encoding/json`, `database/sql` drivers and other code that supports those
-interfaces. JSON text is the canonical 26-character string.
+`ID` implements `encoding.TextMarshaler`, `encoding.TextUnmarshaler`,
+`encoding.BinaryMarshaler` and `encoding.BinaryUnmarshaler`. `encoding/json`
+therefore encodes an `ID` as the canonical 26-character JSON string and decodes
+it strictly:
+
+```go
+data, err := json.Marshal(id) // `"0s44we8002loz3po6mcf6vsn23"`
+```
+
+`database/sql` is not covered by those interfaces. `pikaid.ID` is a struct and
+does not implement `driver.Valuer`, so `database/sql`'s default parameter
+converter rejects it. Pass `id.String()` for a text column, `id.Bytes()` for a
+`BINARY(17)`/`BYTEA` column, or wrap the identifier in an application-specific
+type that implements `driver.Valuer`.
 
 ### Generation
 
@@ -215,7 +226,9 @@ identifier.
 
 ## Development
 
-Requires Go 1.21 or newer.
+Requires Go 1.21 or newer. CI runs the tests on Linux, macOS and Windows with
+Go 1.21.x and the current stable Go release, together with the race detector, a
+coverage gate, 32-bit (`GOARCH=386`) tests, and cross-builds.
 
 ```sh
 go build ./...
@@ -231,8 +244,9 @@ The test suite covers every official PHP v1.2.0 interoperability vector
 (vendored in `testdata/`), independently computed known answers, `math/big`
 oracle comparisons, malformed and overflow inputs, integer and entropy
 boundaries, zero padding, property-based round trips, cross-representation
-ordering, generation and entropy-failure paths, plus fuzz targets for `Parse`
-and `FromBinary`.
+ordering, generation including pre-entropy timestamp validation and CSPRNG
+failure, the text/binary/JSON codecs, plus fuzz targets for `Parse` and
+`FromBinary`.
 
 ## Specification and license
 
