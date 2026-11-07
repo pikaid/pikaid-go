@@ -113,6 +113,41 @@ jobs:
             exit 1
           fi
 
+  hygiene:
+    name: repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Ensure the local .ai workspace is never tracked
+        run: |
+          set -eu
+          tracked="$(git ls-files -- .ai)"
+          if [ -n "$tracked" ]; then
+            echo "::error::.ai/ must never be tracked:"
+            echo "$tracked"
+            exit 1
+          fi
+
+      - name: Ensure the root ignore rule covers .ai
+        run: |
+          set -eu
+          if ! git check-ignore -v .ai/reports/probe.md | grep -q '^\.gitignore:[0-9]*:/.ai/'; then
+            echo "::error::expected an explicit root '/.ai/' rule in .gitignore"
+            git check-ignore -v .ai/reports/probe.md || true
+            exit 1
+          fi
+
+      - name: Ensure source archives exclude .ai
+        run: |
+          set -eu
+          if git archive HEAD | tar -t | grep -q '^\.ai/'; then
+            echo "::error::git archive contains .ai entries"
+            git archive HEAD | tar -t | grep '^\.ai/' || true
+            exit 1
+          fi
+
   coverage:
     name: coverage
     runs-on: ubuntu-latest

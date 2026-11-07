@@ -10,7 +10,5 @@ coverage.html
 # Go fuzzing corpus and crash artifacts
 testdata/fuzz/
 
-# Local agent workspace (downloaded references, scratch notes)
-.ai/ref/
-
-/.??
+# Local agent workspace: never tracked and never packaged.
+/.ai/

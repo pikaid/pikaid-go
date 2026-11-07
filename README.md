@@ -8,9 +8,10 @@
 
 # pikaid — Official Go Implementation
 
-> **Status: unreleased and unpublished.** There is no tagged version, no
-> registry or module-proxy publication, and this private repository has no
-> public package documentation. Pin a commit (`@<commit>`) for reproducible use.
+> **Status: v1.0.0.** This repository is private, so the module is not listed on
+> the public Go module proxy or `pkg.go.dev`. Users with repository access can
+> fetch the tagged release with `GOPRIVATE` set (see Installation). Pin
+> `@v1.0.0` or a commit for reproducible use.
 
 The official Go implementation of [pikaid](https://github.com/pikaid), a compact,
 chronologically sortable identifier for databases, APIs and distributed systems.
@@ -37,11 +38,12 @@ implements [specification revision 1.0.4](https://github.com/pikaid/pikaid-specs
 ## Installation
 
 ```sh
-go get github.com/pikaid/pikaid-go@main
+GOPRIVATE=github.com/pikaid/* go get github.com/pikaid/pikaid-go@v1.0.0
 ```
 
 The module declares Go 1.21 as its minimum supported version and has no
-dependencies outside the Go standard library.
+dependencies outside the Go standard library. Release notes are in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Quick start
 
