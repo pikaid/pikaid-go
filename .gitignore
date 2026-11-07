@@ -12,3 +12,5 @@ testdata/fuzz/
 
 # Local agent workspace (downloaded references, scratch notes)
 .ai/ref/
+
+/.??
