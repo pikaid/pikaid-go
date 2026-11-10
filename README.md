@@ -1,51 +1,63 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/pikaid/pikaid-specs/v1.0.4/logo.png" alt="pikaid" width="300" />
+  <a href="https://github.com/pikaid/pikaid-specs">
+    <img src="https://raw.githubusercontent.com/pikaid/pikaid-specs/v1.0.4/logo.png" alt="pikaid" width="300">
+  </a>
 </p>
 
 <p align="center">
   <strong>Small · Sortable · Secure ID generator</strong>
 </p>
 
-# pikaid — Official Go Implementation
+<div align="center">
 
-> **Status: v1.0.0.** This repository is private, so the module is not listed on
-> the public Go module proxy or `pkg.go.dev`. Users with repository access can
-> fetch the tagged release with `GOPRIVATE` set (see Installation). Pin
-> `@v1.0.0` or a commit for reproducible use.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/language-Go-00ADD8.svg)](https://github.com/pikaid/pikaid-go)
+[![CI](https://github.com/pikaid/pikaid-go/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/pikaid/pikaid-go/actions/workflows/ci.yml)
+[![Official implementation](https://img.shields.io/badge/official-implementation-2e7d32.svg)](https://github.com/pikaid/pikaid-specs)
+[![Specification 1.0.4](https://img.shields.io/badge/spec-1.0.4-4b56a6.svg)](https://github.com/pikaid/pikaid-specs/tree/v1.0.4)
 
-The official Go implementation of [pikaid](https://github.com/pikaid), a compact,
-chronologically sortable identifier for databases, APIs and distributed systems.
+</div>
 
-A pikaid is exactly **26 lowercase Base36 characters**:
+**pikaid** is the **official Go implementation** of a compact, chronologically sortable, collision-resistant identifier format for databases, APIs, and distributed systems.
 
-```text
-0s44we8 002loz3po6mcf6vsn23
-└──┬──┘ └─────────┬────────┘
-   7 chars       19 chars
-   Unix seconds 96 bits of cryptographic randomness
-```
+This is the immutable, unversioned [pikaid format](https://github.com/pikaid/pikaid-specs/tree/v1.0.4), documented in specification revision **1.0.4**.
 
-The equivalent binary form is exactly **17 bytes**:
+## ✨ Why pikaid?
 
-```text
-[ 5-byte big-endian timestamp ][ 12-byte randomness ] = 17 bytes
-```
+- **Short:** Compact, readable IDs for URLs, logs, and API resources.
+- **Sortable:** Lexicographically ordered by timestamp, with **one-second precision**.
+- **Collision-resistant:** 96 bits of cryptographic randomness make collisions extremely unlikely, never impossible.
+- **Storage-friendly:** Use `BINARY(17)` or readable `CHAR(26)`.
+- **Distributed-friendly:** No central sequence generator or coordination required.
 
-The identifier format is **immutable and unversioned**: specification revisions
-describe the same format; they never change the wire representation. This module
-implements [specification revision 1.0.4](https://github.com/pikaid/pikaid-specs/tree/v1.0.4).
+## 🧬 Identifier format
 
-## Installation
+A pikaid contains **26 lowercase Base36 characters**: a **7-character Unix-seconds timestamp** followed by **19 characters encoding 96 bits of cryptographic randomness**. Its binary form is **17 bytes**: 5 unsigned big-endian timestamp bytes followed by 12 randomness bytes.
+
+![Identifier structure](https://raw.githubusercontent.com/pikaid/pikaid-specs/v1.0.4/structure.svg)
+
+> **Ordering:** Different seconds sort chronologically. Within the same second, randomness—not issuance order—decides the order.
+
+> **Security:** These are identifiers, **not secrets**, session credentials, authentication tokens, or API keys.
+
+## ⚙️ Requirements
+
+Go 1.21 or newer.
+
+## 📦 Installation
+
+From a new Go module (the public Git repository is directly consumable; no `GOPRIVATE` setting is needed):
 
 ```sh
-GOPRIVATE=github.com/pikaid/* go get github.com/pikaid/pikaid-go@v1.0.0
+mkdir pikaid-demo
+cd pikaid-demo
+go mod init example.com/pikaid-demo
+go get github.com/pikaid/pikaid-go@main
 ```
 
-The module declares Go 1.21 as its minimum supported version and has no
-dependencies outside the Go standard library. Release notes are in
-[CHANGELOG.md](CHANGELOG.md).
+Save the quick start below as `main.go`, then run `go run .`. Go 1.21 or newer.
 
-## Quick start
+## 🚀 Basic Usage
 
 ```go
 package main
@@ -63,12 +75,75 @@ func main() {
 		log.Fatal(err) // cryptographic failure: fail closed, no ID was produced
 	}
 
-	fmt.Println(id)                  // 0s44we8002loz3po6mcf6vsn23 (example)
-	fmt.Println(id.Timestamp())      // 1700000000
-	fmt.Println(id.RandomnessHex())  // 00112233445566778899aabb
+	fmt.Println(id)                  // 26-character ID, values vary
+	fmt.Println(id.Timestamp())      // Unix seconds at generation time
+	fmt.Println(id.RandomnessHex())  // 24 hex characters
 	fmt.Println(pikaid.IsValid(id.String()))
 }
 ```
+
+## 💡 Example Use Case
+
+Use pikaid to identify **users, orders, invoices, uploads, events, and API resources**. Independent services can generate compact IDs without a shared counter, while timestamp-based ordering helps with indexing, sorting, and logs.
+
+## 📚 Canonical specification
+
+- [Canonical specification](https://github.com/pikaid/pikaid-specs)
+- [Revision 1.0.4](https://github.com/pikaid/pikaid-specs/tree/v1.0.4)
+
+Specification revisions describe the format; they do not change the encoded identifiers.
+
+## 🧩 API Reference
+
+```go
+const (
+	StringLength     = 26
+	BinaryLength     = 17
+	TimestampLength  = 7
+	RandomnessLength = 19
+	TimestampBytes   = 5
+	RandomnessBytes  = 12
+	MaxTimestamp     = 78_364_164_095 // 36^7-1, year 4453
+)
+
+type ID struct{ /* comparable value type; zero value is valid */ }
+
+func Generate() (ID, error)
+func GenerateWithTimestamp(timestamp int64) (ID, error)
+func GenerateBinary() ([BinaryLength]byte, error)
+func GenerateBinaryWithTimestamp(timestamp int64) ([BinaryLength]byte, error)
+
+func Parse(s string) (ID, error)
+func IsValid(s string) bool
+func IsWellFormed(s string) bool
+func FromBinary(b []byte) (ID, error)
+
+func (id ID) String() string
+func (id ID) Bytes() [BinaryLength]byte
+func (id ID) Timestamp() int64
+func (id ID) TimestampTime() time.Time
+func (id ID) Randomness() [RandomnessBytes]byte
+func (id ID) RandomnessHex() string
+func (id ID) Compare(other ID) int
+func (id ID) MarshalText() ([]byte, error)
+func (id *ID) UnmarshalText(text []byte) error
+func (id ID) MarshalBinary() ([]byte, error)
+func (id *ID) UnmarshalBinary(data []byte) error
+```
+
+Sentinel errors for `errors.Is`:
+
+| Error | Meaning |
+| --- | --- |
+| `ErrInvalidLength` | Input is not 26 string bytes or 17 binary bytes |
+| `ErrInvalidCharacter` | A byte outside `[0-9a-z]`, including uppercase |
+| `ErrTimestampOutOfRange` | Timestamp outside `0..MaxTimestamp` |
+| `ErrRandomnessOverflow` | Randomness suffix exceeds 2^96-1 |
+| `ErrRandomSource` | The cryptographic random source failed |
+
+The zero `ID` is valid and equals `"00000000000000000000000000"` (timestamp 0,
+all-zero randomness). `Randomness` returns a copy; mutating it cannot change the
+identifier.
 
 ### Parse and validate
 
@@ -154,79 +229,27 @@ Identifiers with different timestamps sort chronologically. **Identifiers
 created within the same second are ordered by their random suffix, not by
 generation time** — there is no monotonic counter and no sub-second component.
 
-## API
+## 🔄 Order Guarantee
 
-```go
-const (
-	StringLength     = 26
-	BinaryLength     = 17
-	TimestampLength  = 7
-	RandomnessLength = 19
-	TimestampBytes   = 5
-	RandomnessBytes  = 12
-	MaxTimestamp     = 78_364_164_095 // 36^7-1, year 4453
-)
+Text and 17-byte binary values preserve the canonical timestamp-then-randomness ordering. Same-second values are **not** ordered by issuance.
 
-type ID struct{ /* comparable value type; zero value is valid */ }
+## 🛢 Storage Recommendations
 
-func Generate() (ID, error)
-func GenerateWithTimestamp(timestamp int64) (ID, error)
-func GenerateBinary() ([BinaryLength]byte, error)
-func GenerateBinaryWithTimestamp(timestamp int64) ([BinaryLength]byte, error)
+| Representation | Size | Recommended for |
+| --- | ---: | --- |
+| **BINARY(17)** | 17 bytes | Compact primary keys and indexes |
+| **CHAR(26)** | 26 characters | Readable SQL, debugging, URLs, and logs |
 
-func Parse(s string) (ID, error)
-func IsValid(s string) bool
-func IsWellFormed(s string) bool
-func FromBinary(b []byte) (ID, error)
+Use an **ASCII bytewise/binary collation** for text columns (for example, `ascii_bin` on MariaDB/MySQL). Case-insensitive or locale-aware sorting is not a substitute for canonical bytewise comparison.
 
-func (id ID) String() string
-func (id ID) Bytes() [BinaryLength]byte
-func (id ID) Timestamp() int64
-func (id ID) TimestampTime() time.Time
-func (id ID) Randomness() [RandomnessBytes]byte
-func (id ID) RandomnessHex() string
-func (id ID) Compare(other ID) int
-func (id ID) MarshalText() ([]byte, error)
-func (id *ID) UnmarshalText(text []byte) error
-func (id ID) MarshalBinary() ([]byte, error)
-func (id *ID) UnmarshalBinary(data []byte) error
-```
+## ✅ Verification and release status
 
-Sentinel errors for `errors.Is`:
+The [CI workflow](https://github.com/pikaid/pikaid-go/actions/workflows/ci.yml) runs native tests, pinned automated conformance checks, and language-specific quality gates. To run the native checks locally from a checkout: `go test ./...`.
 
-| Error | Meaning |
-| --- | --- |
-| `ErrInvalidLength` | Input is not 26 string bytes or 17 binary bytes |
-| `ErrInvalidCharacter` | A byte outside `[0-9a-z]`, including uppercase |
-| `ErrTimestampOutOfRange` | Timestamp outside `0..MaxTimestamp` |
-| `ErrRandomnessOverflow` | Randomness suffix exceeds 2^96-1 |
-| `ErrRandomSource` | The cryptographic random source failed |
+**Automated passing tests are not a security certification.** The independent CSPRNG source and failure-path audits (`P-GENERATE-RNG-SOURCE` and `P-GENERATE-RNG-FAILURE`) still require separate human evidence.
 
-The zero `ID` is valid and equals `"00000000000000000000000000"` (timestamp 0,
-all-zero randomness). `Randomness` returns a copy; mutating it cannot change the
-identifier.
-
-## Security and limitations
-
-- **Not a secret or an authentication token.** A pikaid is not signed,
-  encrypted or MACed, and part of it is predictable (the timestamp).
-- **Uniqueness is probabilistic, not guaranteed.** 96 bits of randomness make
-  collisions vanishingly unlikely, but applications that require uniqueness
-  must still enforce a primary key or unique constraint.
-- **No monotonicity.** Two identifiers from the same second are unordered with
-  respect to creation time. Do not use pikaid as a sequence or for
-  client-conflict resolution that assumes monotonic ordering.
-- **One-second precision.** There is no sub-second component and timestamps are
-  whole Unix seconds.
-- **No timestamp verification.** Parsing accepts any timestamp in
-  `0..MaxTimestamp`; it does not judge whether the value is plausible.
-- **Fail closed.** A failing CSPRNG produces an error, never a partly random or
-  predictable identifier.
-- **Clock skew.** `Generate` uses the local system clock; hosts with skewed
-  clocks produce skewed timestamps. Synchronize clocks (for example with NTP)
-  when chronological grouping matters.
-
-## Development
+<details>
+<summary>Platform, tooling, and conformance details</summary>
 
 Requires Go 1.21 or newer. CI runs the tests on Linux, macOS and Windows with
 Go 1.21.x and the current stable Go release, together with the race detector, a
@@ -301,9 +324,35 @@ anything else):
 Both remain `MANUAL_EVIDENCE_REQUIRED`. A passing automated run is **not** a
 conformance certification.
 
-## Specification and license
+</details>
 
-- Canonical specification: [pikaid-specs v1.0.4](https://github.com/pikaid/pikaid-specs/tree/v1.0.4)
-- Official implementations: [github.com/pikaid](https://github.com/pikaid)
+Registry publication is not implied by a green CI: use the installation method documented above.
 
-MIT licensed. See [LICENSE](LICENSE).
+## 🤝 Contributing
+
+Contributions are always welcome! 💙
+
+Whether you're fixing a typo, improving documentation, adding tests, or making pikaid even better, every contribution is appreciated.
+
+**Want to help? Here's how:**
+
+- 🐛 **Found a bug?** [Open an issue](https://github.com/pikaid/pikaid-go/issues) with clear reproduction steps.
+- 💡 **Have an idea?** Start with an issue before making major changes.
+- 🛠️ **Ready to contribute?** Open a pull request explaining your changes.
+- 🧪 **Keep it tested.** Add meaningful regression tests for behavior changes and follow the existing conventions.
+- ✅ **Make sure CI passes.** All required checks must be green before a pull request is merged. No shortcuts!
+
+**One important rule:** pikaid's identifier format is immutable. Contributions must preserve the [canonical specification (revision 1.0.4)](https://github.com/pikaid/pikaid-specs/tree/v1.0.4).
+
+🔐 **Found a security vulnerability?** Report it privately using GitHub's security reporting (when available), or [contact the maintainer](mailto:larananas.dev@proton.me)—not through a public issue.
+
+**Every improvement matters, big or small. Thanks for helping make pikaid better!** 🐇
+
+## 📄 License
+
+The implementation is available under the [MIT License](LICENSE).
+
+## ✉️ Contact
+
+For licensing or project-related questions: [larananas.dev@proton.me](mailto:larananas.dev@proton.me).
+
