@@ -1,0 +1,234 @@
+name: CI
+
+"on":
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, go ${{ matrix.go }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ["1.21.x", "stable"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+          cache-dependency-path: go.mod
+
+      - name: Report toolchain
+        run: go version
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./... -count=1
+
+  race:
+    name: race detector
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.21.x"
+          cache: true
+          cache-dependency-path: go.mod
+
+      - name: Test with race detector
+        run: go test -race ./... -count=1
+
+  cross-build:
+    name: cross-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.21.x"
+          cache: true
+          cache-dependency-path: go.mod
+
+      - name: Cross-compile foreign and 32-bit targets
+        run: |
+          set -eu
+          for target in linux/386 linux/arm64 windows/amd64 windows/arm64 darwin/arm64; do
+            echo "building ${target}"
+            GOOS="${target%/*}" GOARCH="${target#*/}" go build ./...
+          done
+
+      - name: Vet and test the 32-bit target
+        run: |
+          set -eu
+          GOOS=linux GOARCH=386 go vet ./...
+          GOOS=linux GOARCH=386 go test ./... -count=1
+
+  format:
+    name: gofmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.21.x"
+          cache: true
+          cache-dependency-path: go.mod
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt required for:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+  hygiene:
+    name: repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Ensure the local .ai workspace is never tracked
+        run: |
+          set -eu
+          tracked="$(git ls-files -- .ai)"
+          if [ -n "$tracked" ]; then
+            echo "::error::.ai/ must never be tracked:"
+            echo "$tracked"
+            exit 1
+          fi
+
+      - name: Ensure the root ignore rule covers .ai
+        run: |
+          set -eu
+          if ! git check-ignore -v .ai/reports/probe.md | grep -q '^\.gitignore:[0-9]*:/.ai/'; then
+            echo "::error::expected an explicit root '/.ai/' rule in .gitignore"
+            git check-ignore -v .ai/reports/probe.md || true
+            exit 1
+          fi
+
+      - name: Ensure source archives exclude .ai
+        run: |
+          set -eu
+          if git archive HEAD | tar -t | grep -q '^\.ai/'; then
+            echo "::error::git archive contains .ai entries"
+            git archive HEAD | tar -t | grep '^\.ai/' || true
+            exit 1
+          fi
+
+      - name: Ensure CI runs on every branch
+        run: |
+          set -eu
+          python3 - <<'PY'
+          from pathlib import Path
+
+          lines = Path(".github/workflows/ci.yml").read_text(encoding="utf-8").splitlines()
+          on_index = next(i for i, line in enumerate(lines) if line.strip() == '"on":')
+          block = []
+          for line in lines[on_index + 1:]:
+              if line.strip() and not line[0].isspace():
+                  break
+              block.append(line)
+
+          push = [i for i, line in enumerate(block) if line.strip() == "push:"]
+          if len(push) != 1:
+              raise SystemExit("::error::expected exactly one unqualified push: trigger")
+          indent = len(block[push[0]]) - len(block[push[0]].lstrip())
+          for line in block[push[0] + 1:]:
+              if not line.strip():
+                  continue
+              if len(line) - len(line.lstrip()) <= indent:
+                  break
+              raise SystemExit("::error::push trigger must run on every branch; remove branch filters")
+          print("push trigger covers every branch")
+          PY
+
+  conformance:
+    name: official conformance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.21.x"
+          cache: true
+          cache-dependency-path: go.mod
+
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Run pinned official conformance suite
+        env:
+          PIKAID_CONFORMANCE_WORKDIR: ${{ runner.temp }}/pikaid-conformance
+          PIKAID_CONFORMANCE_REPORT_JSON: ${{ runner.temp }}/pikaid-conformance/report.json
+        run: ./scripts/verify-official-conformance.sh
+
+      - name: Upload conformance report
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-conformance-report
+          path: ${{ runner.temp }}/pikaid-conformance/report.json
+          if-no-files-found: error
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.21.x"
+          cache: true
+          cache-dependency-path: go.mod
+
+      - name: Measure coverage
+        run: |
+          go test ./... -count=1 -coverprofile=coverage.out -covermode=atomic
+          go tool cover -func=coverage.out
+          total="$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%", "", $3); print $3}')"
+          echo "total coverage: ${total}%"
+          awk -v total="$total" 'BEGIN { if (total + 0 < 90) { print "coverage below 90%"; exit 1 } }'
