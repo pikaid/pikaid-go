@@ -1,0 +1,64 @@
+name: Register Go module releases
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-index-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged module
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Validate module identity and supported stable tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^v[01]\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::v2+ modules require a /v2 module path. Verify Go's semantic import versioning before releasing."
+            exit 1
+          }
+          module="$(go list -m)"
+          test "$module" = "github.com/pikaid/pikaid-go"
+
+      - name: Verify module and test suite
+        run: |
+          go mod verify
+          go vet ./...
+          go test -count=1 ./...
+
+      - name: Make this exact tag discoverable by the Go module proxy
+        env:
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..8}; do
+            if go list -m "github.com/pikaid/pikaid-go@${GITHUB_REF_NAME}"; then
+              echo "Registered $GITHUB_REF_NAME with the public Go module proxy"
+              exit 0
+            fi
+            if [ "$attempt" -eq 8 ]; then
+              echo "::error::Go proxy did not resolve tagged version after 8 attempts"
+              exit 1
+            fi
+            sleep 15
+          done
